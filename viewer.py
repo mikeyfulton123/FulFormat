@@ -1,6 +1,6 @@
 """
-FUL Lab: a PyQt6 test bench for the FUL codec (v7: whole-image directional 9/7
-wavelets, dependent quantisation, real-cost RDO, perceptual quantisation, context-modelled rANS,
+FUL Lab: a PyQt6 test bench for the FUL codec (v8: whole-image directional 9/7
+wavelets, post-filter, learned priors, dependent quantisation, real-cost RDO, perceptual quantisation, context-modelled rANS,
 denoising and grain).
 
 Run:  python viewer.py [optional image or .ful path]
@@ -32,6 +32,7 @@ import codec_v4
 import codec_v5
 import codec_v6
 import codec_v7
+import codec_v8
 import ful
 import formats
 import metrics
@@ -97,7 +98,7 @@ def warm_up_codec():
     global _codec_warmed
     if not _codec_warmed:
         tiny = np.zeros((8, 8, 3), np.uint8)
-        codec_v7.decode(codec_v7.encode(tiny, 50, True, denoise=1.0,
+        codec_v8.decode(codec_v8.encode(tiny, 50, True, denoise=1.0,
                                         grain=True, masking=True))
         _codec_warmed = True
 
@@ -122,13 +123,13 @@ class CodecWorker(QThread):
             strength = (codec_v4.auto_denoise_strength(noise) if mode == "auto"
                         else float(mode))
             t0 = time.perf_counter()
-            data = codec_v7.encode(self.rgb, denoise=strength, **settings)
+            data = codec_v8.encode(self.rgb, denoise=strength, **settings)
             t1 = time.perf_counter()
-            decoded = codec_v7.decode(data, grain=0)       # measured without grain
+            decoded = codec_v8.decode(data, grain=0)       # measured without grain
             t2 = time.perf_counter()
-            header = codec_v7.read_header(data)
+            header = codec_v8.read_header(data)
             has_grain = header["grain"]
-            grained = codec_v7.decode(data, grain=1) if has_grain else decoded
+            grained = codec_v8.decode(data, grain=1) if has_grain else decoded
             others = {}
             for fmt in FORMATS:
                 if not compare_all and fmt.name != "JPEG":
@@ -145,7 +146,7 @@ class CodecWorker(QThread):
                 "data": data, "decoded": decoded, "grained": grained,
                 "has_grain": has_grain, "wavelet": header["wavelet"],
                 "levels": header["levels"], "directional": header["directional"],
-                "dq": header["dq"], "noise": noise, "strength": strength,
+                "dq": header["dq"], "filter": header["filter"], "noise": noise, "strength": strength,
                 "settings": self.settings,
                 "enc_ms": (t1 - t0) * 1000, "dec_ms": (t2 - t1) * 1000,
                 "ssim": metrics.ssim(self.rgb, decoded),
@@ -256,6 +257,8 @@ class MainWindow(QMainWindow):
         self.directional.setChecked(True)
         self.dq = QCheckBox("Dependent quantisation")
         self.dq.setChecked(True)
+        self.post_filter = QCheckBox("Post-filter (edge-aware clean-up)")
+        self.post_filter.setChecked(True)
         self.masking = QCheckBox("Texture masking (experimental)")
         hint = QLabel("Quality 100 is lossless (5/3 wavelet); lower qualities "
                       "use the 9/7. Auto denoise only cleans photos that need "
@@ -269,6 +272,7 @@ class MainWindow(QMainWindow):
         enc_form.addRow(self.rdo)
         enc_form.addRow(self.directional)
         enc_form.addRow(self.dq)
+        enc_form.addRow(self.post_filter)
         enc_form.addRow(self.masking)
         enc_form.addRow(hint)
         enc_box = QGroupBox("Encoder")
@@ -378,6 +382,7 @@ class MainWindow(QMainWindow):
         self.rdo.toggled.connect(self.schedule_encode)
         self.directional.toggled.connect(self.schedule_encode)
         self.dq.toggled.connect(self.schedule_encode)
+        self.post_filter.toggled.connect(self.schedule_encode)
         self.denoise.currentIndexChanged.connect(self.schedule_encode)
         self.compare_all.toggled.connect(self.schedule_encode)
         self.show_grain.toggled.connect(self._on_grain_toggled)
@@ -496,6 +501,7 @@ class MainWindow(QMainWindow):
                 "rdo": self.rdo.isChecked(),
                 "directional": self.directional.isChecked(),
                 "dq": self.dq.isChecked(),
+                "post_filter_on": self.post_filter.isChecked(),
                 "compare_all": self.compare_all.isChecked(),
                 "denoise_mode": {"Auto": "auto", "Off": 0.0, "Light": 0.5,
                                  "Standard": 1.0, "Strong": 1.5}[self.denoise.currentText()]}
@@ -679,7 +685,8 @@ class MainWindow(QMainWindow):
         s["Wavelet"].setText(f"{res['wavelet']}, {res['levels']} levels"
                              + (" (lossless)" if res["wavelet"] == "5/3" else "")
                              + (", directional" if res.get("directional") else "")
-                             + (", DQ" if res.get("dq") else ""))
+                             + (", DQ" if res.get("dq") else "")
+                             + (", post-filter" if res.get("filter") else ""))
         strength = res["strength"]
         s["Noise"].setText(f"{res['noise']:.1f} levels, "
                            + ("not denoised" if strength == 0 else f"denoised at {strength:.2f}"))

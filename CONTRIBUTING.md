@@ -10,7 +10,7 @@ measurement, and negative results are as welcome as positive ones.
 2. Make one change at a time and measure it alone before combining.
 3. Open a pull request with the report described below.
 
-New format versions go in a new file (`codec_v8.py`, ...). Never change how an
+New format versions go in a new file (`codec_v9.py`, ...). Never change how an
 existing version decodes: files written by it exist and must keep opening.
 Register new versions in `ful.py`.
 
@@ -26,9 +26,9 @@ Register new versions in `ful.py`.
 
 ## Measuring
 
-    python bench/run.py --codec v8               # tuning + held-out sets
-    python bench/run.py --codec v8 --formats     # include WebP, AVIF, JPEG XL, JPEG 2000
-    python bench/run.py --codec v8 --dir photos  # your own held-out photos
+    python bench/run.py --codec v9               # tuning + held-out sets
+    python bench/run.py --codec v9 --formats     # include WebP, AVIF, JPEG XL, JPEG 2000
+    python bench/run.py --codec v9 --dir photos  # your own held-out photos
 
 The primary number is file size relative to JPEG at equal colour SSIM
 (YCbCr, weighted 6:1:1), interpolated at the SSIM values JPEG reaches at
@@ -47,10 +47,11 @@ qualities 50, 75 and 90.
 - **Results:** tuning set, held-out set, second metric, encode and decode time.
 - **Verdict:** adopt, needs work, or drop.
 
-## Current state (v7)
+## Current state (v8)
 
-About 35% smaller than JPEG on the tuning photos and 28% on held-out images at
-equal SSIM. Reference points: WebP ~30%, JPEG XL ~28%, JPEG 2000 ~21%,
+About 35% smaller than JPEG on photos and 32% on textures at equal SSIM.
+Always report a second metric too: at equal MS-SSIM FUL photos are currently
+~5% larger than JPEG (see README, Open issues). Reference points: WebP ~30%, JPEG XL ~28%, JPEG 2000 ~21%,
 AVIF ~46%.
 
 Already tried: see "Already tried" in the README's history section.

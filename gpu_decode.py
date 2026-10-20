@@ -1,5 +1,5 @@
 """
-GPU decoding for FUL v4 to v7 files (OpenGL 3.3 core, via PyOpenGL).
+GPU decoding for FUL v4 to v8 files (OpenGL 3.3 core, via PyOpenGL).
 
 The work is split by what each processor is good at:
 
@@ -39,6 +39,7 @@ import codec_v4  # noqa: E402
 import codec_v5  # noqa: E402
 import codec_v6  # noqa: E402
 import codec_v7  # noqa: E402
+import codec_v8  # noqa: E402
 
 VERTEX = """
 #version 330 core
@@ -183,6 +184,39 @@ void main() {
 """
 
 
+FILTER = COMMON + """
+// v8 post-filter: 5x5 edge-aware (bilateral) filter, integer, same tables as the CPU
+uniform sampler2D uImg;
+uniform isampler2D uMap;     // strength per 32x32 block, 0 = off
+uniform isampler2D uRange;   // brightness-similarity weights: 256 x 5 strengths
+uniform ivec2 uSize;
+out vec4 oColour;
+const int SP[25] = int[25](""" + "1, 5, 9, 5, 1, 5, 24, 39, 24, 5, 9, 39, 64, 39, 9, 5, 24, 39, 24, 5, 1, 5, 9, 5, 1" + """);
+ivec3 px(ivec2 q) { return ivec3(round(texelFetch(uImg, q, 0).rgb * 255.0)); }
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    int k = texelFetch(uMap, p >> 5, 0).r;
+    vec4 c0 = texelFetch(uImg, p, 0);
+    if (k == 0) { oColour = c0; return; }
+    ivec3 cc = px(p);
+    int yc = (77 * cc.r + 150 * cc.g + 29 * cc.b) >> 8;
+    ivec3 n = ivec3(0);
+    int den = 0;
+    for (int dy = -2; dy <= 2; dy++) {
+        for (int dx = -2; dx <= 2; dx++) {
+            ivec3 v = px(clamp(p + ivec2(dx, dy), ivec2(0), uSize - 1));
+            int yn = (77 * v.r + 150 * v.g + 29 * v.b) >> 8;
+            int wgt = SP[(dy + 2) * 5 + dx + 2] * texelFetch(uRange, ivec2(abs(yn - yc), k), 0).r;
+            n += wgt * v;
+            den += wgt;
+        }
+    }
+    ivec3 r = (n + den / 2) / den;
+    oColour = vec4(vec3(r) / 255.0, 1.0);
+}
+"""
+
+
 # --------------------------------------------------------------------------
 # Context creation
 # --------------------------------------------------------------------------
@@ -259,6 +293,7 @@ class GpuDecoder:
         self.renderer = GL.glGetString(GL.GL_RENDERER).decode()
         self.lift = _compile(VERTEX, LIFT)
         self.colour = _compile(VERTEX, COLOUR)
+        self.filter = _compile(VERTEX, FILTER)
         self.vao = GL.glGenVertexArrays(1)
         self._size = None
         self._uniforms = {}
@@ -290,8 +325,8 @@ class GpuDecoder:
         if self._size == (w, h):
             return
         if self._size is not None:
-            GL.glDeleteTextures(list(self.tex) + [self.out_tex, self.upload_tex])
-            fbos = list(self.fbo) + [self.out_fbo]
+            GL.glDeleteTextures(list(self.tex) + [self.out_tex, self.upload_tex, self.out2_tex])
+            fbos = list(self.fbo) + [self.out_fbo, self.out2_fbo]
             GL.glDeleteFramebuffers(len(fbos), fbos)
         # compact 16-bit upload; 32-bit working space stays on the GPU
         self.upload_tex = self._texture(GL.GL_RGB16I, w, h, GL.GL_RGB_INTEGER, GL.GL_SHORT)
@@ -300,6 +335,8 @@ class GpuDecoder:
         self.fbo = [self._fbo(t) for t in self.tex]
         self.out_tex = self._texture(GL.GL_RGBA8, w, h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
         self.out_fbo = self._fbo(self.out_tex)
+        self.out2_tex = self._texture(GL.GL_RGBA8, w, h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+        self.out2_fbo = self._fbo(self.out2_tex)
         self._size = (w, h)
 
     def _prepare(self, data: bytes):
@@ -323,8 +360,8 @@ class GpuDecoder:
                         steps=codec_v5.STEPS_97 if info["wavelet"] == "9/7" else codec_v5.STEPS_53,
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v5.GRAIN_CELL, rows_first=False, dirs=[])
-        if version in (6, 7):
-            codec = codec_v6 if version == 6 else codec_v7
+        if version in (6, 7, 8):
+            codec = {6: codec_v6, 7: codec_v7, 8: codec_v8}[version]
             coef, grain_sig, info, _, dirmaps = codec.decode_coefficients(data)
             if np.abs(coef).max() > 32767:
                 raise ValueError("Coefficients exceed 16 bits; use the CPU decoder")
@@ -335,8 +372,10 @@ class GpuDecoder:
                         steps=codec_v6.STEPS_97 if info["wavelet"] == "9/7" else codec_v6.STEPS_53,
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v6.GRAIN_CELL, rows_first=True,
-                        dirs=[np.ascontiguousarray(codec_v6.DIRS[m].astype(np.int32)) for m in dirmaps])
-        raise ValueError(f"GPU decoding supports FUL v4 to v7, not version {version}")
+                        dirs=[np.ascontiguousarray(codec_v6.DIRS[m].astype(np.int32)) for m in dirmaps],
+                        filter=(codec_v8.filter_map(data, info).astype(np.int32)
+                                if version == 8 and info.get("filter") else None))
+        raise ValueError(f"GPU decoding supports FUL v4 to v8, not version {version}")
 
     def _pass(self, src_tex, dst):
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.fbo[dst])
@@ -423,14 +462,33 @@ class GpuDecoder:
         GL.glUniform1i(c("uHasGrain"), 1 if gsig is not None else 0)
         GL.glUniform1f(c("uGrainAmount"), float(grain))
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+        filter_tex = []
+        fmap = job.get("filter")
+        if fmap is not None:
+            # 4) v8 post-filter, reading the colour pass's 8-bit output
+            GL.glUseProgram(self.filter)
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.out2_fbo)
+            mtex = self._texture(GL.GL_R32I, fmap.shape[1], fmap.shape[0], GL.GL_RED_INTEGER,
+                                 GL.GL_INT, np.ascontiguousarray(fmap))
+            rlut = np.ascontiguousarray(codec_v8.RANGE_LUT.astype(np.int32))
+            rtex = self._texture(GL.GL_R32I, rlut.shape[1], rlut.shape[0], GL.GL_RED_INTEGER, GL.GL_INT, rlut)
+            filter_tex = [mtex, rtex]
+            for unit, tex, name in ((0, self.out_tex, "uImg"), (1, mtex, "uMap"), (2, rtex, "uRange")):
+                GL.glActiveTexture(GL.GL_TEXTURE0 + unit)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, tex)
+                GL.glUniform1i(self._u(self.filter, name), unit)
+            GL.glUniform2i(self._u(self.filter, "uSize"), w, h)
+            GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+            passes += 1
         GL.glFinish()
         t3 = time.perf_counter()
 
         GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 4)
+        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.out2_fbo if fmap is not None else self.out_fbo)
         raw = GL.glReadPixels(0, 0, w, h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
         rgb = np.frombuffer(raw, np.uint8).reshape(h, w, 4)[..., :3].copy()
         t4 = time.perf_counter()
-        GL.glDeleteTextures([gtex] + dir_tex)
+        GL.glDeleteTextures([gtex] + dir_tex + filter_tex)
         GL.glActiveTexture(GL.GL_TEXTURE0)
         return rgb, {"cpu_ms": (t1 - t0) * 1e3, "upload_ms": (t2 - t1) * 1e3,
                      "gpu_ms": (t3 - t2) * 1e3, "readback_ms": (t4 - t3) * 1e3,
@@ -478,10 +536,12 @@ if __name__ == "__main__":
             assert np.array_equal(dec.decode(data)[0], codec_v6.decode(data)), ("v6", img.shape, q)
             data = codec_v7.encode(img, q, denoise=0.0, grain=False)
             assert np.array_equal(dec.decode(data)[0], codec_v7.decode(data)), ("v7", img.shape, q)
+            data = codec_v8.encode(img, q, denoise=0.0, grain=False)
+            assert np.array_equal(dec.decode(data)[0], codec_v8.decode(data)), ("v8", img.shape, q)
     print("GPU output is bit-identical to the CPU decoders: v4 (tiled 5/3), "
-          "v5 (whole-image 5/3 and 9/7), v6 and v7 (directional 9/7), odd sizes, lossless and lossy.")
+          "v5 (whole-image 5/3 and 9/7), v6 to v8 (directional 9/7; v8 with its post-filter), odd sizes, lossless and lossy.")
     img = codec_v1.make_test_image()
-    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6), (7, codec_v7)):
+    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6), (7, codec_v7), (8, codec_v8)):
         data = codec.encode(img, 75, denoise=1.0, grain=True)
         gpu, t = dec.decode(data)
         differ = np.count_nonzero(np.any(gpu != codec.decode(data), axis=2))

@@ -6,9 +6,9 @@ real-cost rate-distortion optimisation, context-modelled rANS entropy coding,
 automatic denoising with grain regeneration, and a GPU decoder that is
 bit-identical to the CPU decoder.
 
-At equal SSIM, FUL v7 files are about 35% smaller than JPEG on the tuning
-photos and 28% smaller on held-out images (WebP ~30%, JPEG XL ~28%,
-JPEG 2000 ~21%, AVIF ~46%).
+At equal SSIM, FUL v8 files are about 35% smaller than JPEG on photos and 32%
+on textures (WebP ~30%, JPEG XL ~28%, JPEG 2000 ~21%, AVIF ~46%).
+See "Open issues" for how this depends on the quality metric.
 
 ## Quick start
 
@@ -16,18 +16,19 @@ JPEG 2000 ~21%, AVIF ~46%).
     source .venv/bin/activate          # Windows: .venv\Scripts\activate
     pip install -r requirements.txt
     python viewer.py                   # FUL Lab: compare FUL with other formats
-    python codec_v7.py                 # self-test
+    python codec_v8.py                 # self-test
     python bench/run.py                # benchmark against JPEG
 
 Contributions and research: see `CONTRIBUTING.md`.
 
 ## Files
 
-- `codec_v1.py` ... `codec_v7.py`: every version of the format. Each keeps its
-  own decoder so older `.ful` files always open. v7 is the current format.
+- `codec_v1.py` ... `codec_v8.py`: every version of the format. Each keeps its
+  own decoder so older `.ful` files always open. v8 is the current format.
+- `priors_v8.npy`: v8's learned starting probabilities (`python codec_v8.py --train`).
 - `ful.py`: opens any `.ful` file by reading its version byte.
 - `gpu_decode.py`: CPU entropy decoding + OpenGL decoding of the wavelet,
-  colour and grain stages (v4 to v7).
+  colour, grain and post-filter stages (v4 to v8).
 - `formats.py`: JPEG, WebP, AVIF, JPEG XL and JPEG 2000 for comparison.
 - `metrics.py`: PSNR and colour SSIM.
 - `viewer.py`: FUL Lab, the PyQt6 test bench.
@@ -54,6 +55,25 @@ Contributions and research: see `CONTRIBUTING.md`.
   Didn't help (measured on v6's coefficients before building): edge-aware
   contexts (orientation-weighted, diagonal, cross-channel), which were 0.4-1.9%
   worse, because more contexts dilute each model's statistics.
+- v8: encoder-guided post-filter (+2.6 points on photos, +4.2 on textures at
+  equal SSIM; confirmed on MS-SSIM: +2.2 and +3.6) and learned priors (~1%,
+  identical pixels). Measured and not adopted: directional row pass, 11 angles
+  (no gain: directional lifting is saturated), cross-scale edge-directed
+  prediction (0.3-0.6%), wavelet packets (<1% except regular textures),
+  texture synthesis (worse, visibly), region-split contexts (no gain beyond
+  priors), coarser-level step refinement for MS-SSIM (costs SSIM). Colour
+  predicted from brightness measured -0.45% offline; not built yet.
+
+## Open issues
+
+- **Metric dependence.** At equal MS-SSIM (brightness, 5 scales), FUL v8 photos
+  average ~5% LARGER than JPEG (rocket +30%, starfield +20%), while at equal
+  SSIM they are ~35% smaller and at equal PSNR ~45% smaller. All tuning so far
+  used SSIM. Giving coarse levels finer steps helped MS-SSIM only ~1 point and
+  cost SSIM 2.4, so the cause is still unknown. Worth investigating before any
+  further SSIM-only tuning.
+- Decoding is slower than v6 on one CPU core (v7's sign/low-bit coding and
+  dependent quantisation, plus v8's filter); the GPU path absorbs the filter.
 
 ## Setup (VS Code)
 
@@ -184,3 +204,18 @@ each value: 0->{0,2}, 1->{2,0}, 2->{1,3}, 3->{3,1}). States 0-1 reconstruct
 Detail code-blocks code each sign with the rANS coder in 9 contexts (sign of
 the left and upper neighbour) and the first low-order bit of values >= 4 in
 a model per magnitude class; remaining low bits stay raw.
+
+### Version 8
+
+Same layout as version 7 (version byte 8), plus:
+
+- Detail code-blocks start their adaptive models from learned tables
+  (`priors_v8.npy`, indexed by brightness/colour and level 1-4+) instead of the
+  generic start; the decoder must use the same table.
+- Flag bit 6 = post-filter. The block-length table then has one extra LEB128
+  length, for the filter block stored at the end of the file: one strength 0-4
+  per 32x32 block in raster order (context: previous block's strength). The
+  decoder applies, at full resolution only, a 5x5 integer bilateral filter:
+  weight = spatial[dy][dx] x range[strength][|Y(n) - Y(c)|], with
+  Y = (77R + 150G + 29B) >> 8, output = (sum(w x v) + den/2) / den per channel.
+  Tables: `SPATIAL_LUT` and `RANGE_LUT` in codec_v8.py. Never used with grain.
