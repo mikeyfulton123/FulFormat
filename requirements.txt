@@ -1,0 +1,8 @@
+numpy
+numba
+scipy
+PyQt6
+PyOpenGL
+Pillow
+imagecodecs
+scikit-image

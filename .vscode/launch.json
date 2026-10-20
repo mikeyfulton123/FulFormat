@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FUL Lab (viewer)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/viewer.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v6 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v6.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v5 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v5.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "GPU decoder self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/gpu_decode.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v4 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v4.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v3 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v3.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v2 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v2.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v1 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v1.py",
+      "console": "integratedTerminal"
+    }
+  ]
+}

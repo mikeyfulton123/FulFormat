@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Benchmark output (commit a result deliberately with `git add -f` if a report needs it)
+bench/results/
+
+# Files produced while testing
+*.ful
+*.myim
+
+# Editors and OS
+.DS_Store
+.idea/
