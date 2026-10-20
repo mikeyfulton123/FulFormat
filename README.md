@@ -6,8 +6,8 @@ real-cost rate-distortion optimisation, context-modelled rANS entropy coding,
 automatic denoising with grain regeneration, and a GPU decoder that is
 bit-identical to the CPU decoder.
 
-At equal SSIM, FUL v6 files are about 31% smaller than JPEG on the tuning
-photos and 23% smaller on held-out images (WebP ~30%, JPEG XL ~28%,
+At equal SSIM, FUL v7 files are about 35% smaller than JPEG on the tuning
+photos and 28% smaller on held-out images (WebP ~30%, JPEG XL ~28%,
 JPEG 2000 ~21%, AVIF ~46%).
 
 ## Quick start
@@ -16,18 +16,18 @@ JPEG 2000 ~21%, AVIF ~46%).
     source .venv/bin/activate          # Windows: .venv\Scripts\activate
     pip install -r requirements.txt
     python viewer.py                   # FUL Lab: compare FUL with other formats
-    python codec_v6.py                 # self-test
+    python codec_v7.py                 # self-test
     python bench/run.py                # benchmark against JPEG
 
 Contributions and research: see `CONTRIBUTING.md`.
 
 ## Files
 
-- `codec_v1.py` ... `codec_v6.py`: every version of the format. Each keeps its
-  own decoder so older `.ful` files always open. v6 is the current format.
+- `codec_v1.py` ... `codec_v7.py`: every version of the format. Each keeps its
+  own decoder so older `.ful` files always open. v7 is the current format.
 - `ful.py`: opens any `.ful` file by reading its version byte.
 - `gpu_decode.py`: CPU entropy decoding + OpenGL decoding of the wavelet,
-  colour and grain stages (v4 to v6).
+  colour and grain stages (v4 to v7).
 - `formats.py`: JPEG, WebP, AVIF, JPEG XL and JPEG 2000 for comparison.
 - `metrics.py`: PSNR and colour SSIM.
 - `viewer.py`: FUL Lab, the PyQt6 test bench.
@@ -47,8 +47,13 @@ Contributions and research: see `CONTRIBUTING.md`.
 - v6: directional lifting (+4 on photos, ~0 on edge-poor images), real-cost RDO
   with rounding up allowed (+1.7). Didn't help: a third directional level,
   removing the straight-prediction bias, RDO that only rounds down.
-- Measured, not built: sign contexts (~0.9% of file), coding the first low
-  bit (~0.4%), compact header/table (most of the 5% on small thumbnails).
+- v7: sign contexts + coded first low bit + compact header (+2 points, pixels
+  identical to v6), dependent quantisation with a Viterbi trellis (+1.7 tuning,
+  +3.6 held-out; step eta = 1.0, measured best of 0.5-1.2). Confirmed at equal
+  PSNR (v6 -43.0%, v7 -44.6% vs JPEG). Cost: decoding 30-70% slower on one core.
+  Didn't help (measured on v6's coefficients before building): edge-aware
+  contexts (orientation-weighted, diagonal, cross-channel), which were 0.4-1.9%
+  worse, because more contexts dilute each model's statistics.
 
 ## Setup (VS Code)
 
@@ -160,3 +165,22 @@ columns clamped to the region). Rows mirror at the edges as before.
 
 Real-cost RDO is encoder-only and needs no format change: decoders read v6
 files exactly as v5 apart from the directions.
+
+### Version 7
+
+Same layout as version 6 (version byte 7), with these changes:
+
+    header: magic | version=7 | width u32 | height u32 | quality u8 | flags u8
+            | levels u8 | precision u8 | base_step f32 | dq_eta u8 (x100)
+    band weights: only stored when flag bit 5 (custom weights) is set;
+                  otherwise the decoder rebuilds the standard table
+    code-block lengths: LEB128 variable-length integers
+
+Flag bit 4 = dependent quantisation. Detail bands are then dequantised in
+raster order per band with a 4-state machine (next state from the parity of
+each value: 0->{0,2}, 1->{2,0}, 2->{1,3}, 3->{3,1}). States 0-1 reconstruct
+2|k|*eta*step, states 2-3 (2|k|-1)*eta*step. The LL band is unchanged.
+
+Detail code-blocks code each sign with the rANS coder in 9 contexts (sign of
+the left and upper neighbour) and the first low-order bit of values >= 4 in
+a model per magnitude class; remaining low bits stay raw.

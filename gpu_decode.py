@@ -1,5 +1,5 @@
 """
-GPU decoding for FUL v4, v5 and v6 files (OpenGL 3.3 core, via PyOpenGL).
+GPU decoding for FUL v4 to v7 files (OpenGL 3.3 core, via PyOpenGL).
 
 The work is split by what each processor is good at:
 
@@ -38,6 +38,7 @@ from OpenGL import GL  # noqa: E402
 import codec_v4  # noqa: E402
 import codec_v5  # noqa: E402
 import codec_v6  # noqa: E402
+import codec_v7  # noqa: E402
 
 VERTEX = """
 #version 330 core
@@ -322,8 +323,9 @@ class GpuDecoder:
                         steps=codec_v5.STEPS_97 if info["wavelet"] == "9/7" else codec_v5.STEPS_53,
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v5.GRAIN_CELL, rows_first=False, dirs=[])
-        if version == 6:
-            coef, grain_sig, info, _, dirmaps = codec_v6.decode_coefficients(data)
+        if version in (6, 7):
+            codec = codec_v6 if version == 6 else codec_v7
+            coef, grain_sig, info, _, dirmaps = codec.decode_coefficients(data)
             if np.abs(coef).max() > 32767:
                 raise ValueError("Coefficients exceed 16 bits; use the CPU decoder")
             packed = np.ascontiguousarray(coef.transpose(1, 2, 0)).astype(np.int16)
@@ -334,7 +336,7 @@ class GpuDecoder:
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v6.GRAIN_CELL, rows_first=True,
                         dirs=[np.ascontiguousarray(codec_v6.DIRS[m].astype(np.int32)) for m in dirmaps])
-        raise ValueError(f"GPU decoding supports FUL v4, v5 and v6, not version {version}")
+        raise ValueError(f"GPU decoding supports FUL v4 to v7, not version {version}")
 
     def _pass(self, src_tex, dst):
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.fbo[dst])
@@ -474,10 +476,12 @@ if __name__ == "__main__":
             assert np.array_equal(dec.decode(data)[0], codec_v5.decode(data)), ("v5", img.shape, q)
             data = codec_v6.encode(img, q, denoise=0.0, grain=False)
             assert np.array_equal(dec.decode(data)[0], codec_v6.decode(data)), ("v6", img.shape, q)
+            data = codec_v7.encode(img, q, denoise=0.0, grain=False)
+            assert np.array_equal(dec.decode(data)[0], codec_v7.decode(data)), ("v7", img.shape, q)
     print("GPU output is bit-identical to the CPU decoders: v4 (tiled 5/3), "
-          "v5 (whole-image 5/3 and 9/7) and v6 (directional 9/7), odd sizes, lossless and lossy.")
+          "v5 (whole-image 5/3 and 9/7), v6 and v7 (directional 9/7), odd sizes, lossless and lossy.")
     img = codec_v1.make_test_image()
-    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6)):
+    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6), (7, codec_v7)):
         data = codec.encode(img, 75, denoise=1.0, grain=True)
         gpu, t = dec.decode(data)
         differ = np.count_nonzero(np.any(gpu != codec.decode(data), axis=2))

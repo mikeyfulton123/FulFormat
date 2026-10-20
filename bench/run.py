@@ -7,7 +7,7 @@ at the SSIM values JPEG reaches at qualities 50, 75 and 90, and the result is
 reported as file size relative to JPEG (negative = smaller than JPEG).
 
 Usage (from the repository root):
-    python bench/run.py                       # FUL v6 on tuning + held-out images
+    python bench/run.py                       # FUL v7 on tuning + held-out images
     python bench/run.py --formats             # also WebP, AVIF, JPEG XL, JPEG 2000
     python bench/run.py --codec v5            # an older FUL version
     python bench/run.py --dir path/to/photos  # your own held-out images
@@ -118,7 +118,7 @@ def summarise(per_image, names):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--codec", default="v6", help="FUL codec version to test (v1-v6)")
+    ap.add_argument("--codec", default="v7", help="FUL codec version to test (v1-v7)")
     ap.add_argument("--formats", action="store_true", help="also test WebP, AVIF, JPEG XL, JPEG 2000")
     ap.add_argument("--dir", help="folder of extra held-out images")
     ap.add_argument("--quick", action="store_true", help="half the quality steps")
