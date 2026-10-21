@@ -6,3 +6,4 @@ PyOpenGL
 Pillow
 imagecodecs
 scikit-image
+pillow-heif

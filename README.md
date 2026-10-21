@@ -10,6 +10,21 @@ At equal SSIM, FUL v8 files are about 35% smaller than JPEG on photos and 32%
 on textures (WebP ~30%, JPEG XL ~28%, JPEG 2000 ~21%, AVIF ~46%).
 See "Open issues" for how this depends on the quality metric.
 
+## Real-life testing
+
+FUL Lab's toolbar has **Open image**, **Export .ful** and **Export decoded PNG**.
+Photos open the right way up (EXIF orientation); iPhone HEIC photos open when
+`pillow-heif` is installed (it is in requirements.txt). Above 6 megapixels the
+comparison with other formats starts switched off, to keep things responsive.
+
+macOS can't preview `.ful` files (Finder and Quick Look only know Apple's
+formats). Use **Export decoded PNG** to view or share exactly what a `.ful`
+decodes to, or the command line:
+
+    python ful_cli.py encode photos/ -q 75 -o out/   # a whole folder of photos
+    python ful_cli.py decode out/photo.ful           # -> photo_ful.png
+    python ful_cli.py info out/*.ful                 # version, size, settings
+
 ## Quick start
 
     python -m venv .venv
@@ -32,6 +47,7 @@ Contributions and research: see `CONTRIBUTING.md`.
 - `formats.py`: JPEG, WebP, AVIF, JPEG XL and JPEG 2000 for comparison.
 - `metrics.py`: PSNR and colour SSIM.
 - `viewer.py`: FUL Lab, the PyQt6 test bench.
+- `ful_cli.py`: encode, decode and inspect FUL files from the command line.
 - `bench/run.py`: reproducible benchmark (size at equal SSIM vs JPEG).
 
 ## History and what has been tried
@@ -63,6 +79,13 @@ Contributions and research: see `CONTRIBUTING.md`.
   texture synthesis (worse, visibly), region-split contexts (no gain beyond
   priors), coarser-level step refinement for MS-SSIM (costs SSIM). Colour
   predicted from brightness measured -0.45% offline; not built yet.
+
+- v8.1 (encoder update, same file format): noise is measured in the image's
+  flattest regions, catching the slightly blurred noise phone cameras produce.
+  Simulated low-light phone photos: -63% vs JPEG at equal closeness to the
+  clean scene (was -56%); daylight -43.5% (was -45.3%); clean photos untouched.
+  On three real camera photos (1024px crops): -46% vs JPEG at equal SSIM
+  (JPEG XL -40%, AVIF -35%); at equal MS-SSIM -17% (JPEG XL -29%, AVIF -17%).
 
 ## Open issues
 

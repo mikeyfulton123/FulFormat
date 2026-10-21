@@ -48,7 +48,8 @@ def _gpu_module():
     except Exception as exc:
         return None, f"{type(exc).__name__}: {exc}"
 
-IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff *.webp *.avif *.jxl *.jp2 *.j2k)"
+IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.heic *.heif *.bmp *.gif *.tif *.tiff *.webp *.avif *.jxl *.jp2 *.j2k)"
+LARGE_IMAGE = 6_000_000      # pixels; above this the all-formats comparison starts switched off
 FUL_FILTER = "FUL images (*.ful)"
 ZOOM_LEVELS = ["Fit", "25%", "50%", "100%", "200%", "400%", "800%"]
 
@@ -76,6 +77,37 @@ def qt_encoded_size(img: QImage, fmt: str, quality: int = -1) -> int:
     buf.open(QIODevice.OpenModeFlag.WriteOnly)
     img.save(buf, fmt, quality)
     return buf.size()
+
+
+def read_photo(path) -> np.ndarray:
+    """Open a photo the way a phone or camera intends it to be seen: Pillow first
+    (applies the EXIF rotation; HEIC/HEIF if pillow-heif is installed), then Qt,
+    then the comparison codecs (AVIF, JPEG XL, JPEG 2000)."""
+    path = Path(path)
+    try:
+        from PIL import Image, ImageOps
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        except ImportError:
+            pass
+        with Image.open(path) as im:
+            return np.ascontiguousarray(np.asarray(ImageOps.exif_transpose(im).convert("RGB")))
+    except Exception:
+        pass
+    img = QImage(str(path))
+    if not img.isNull():
+        return qimage_to_rgb(img)
+    data = path.read_bytes()
+    for fmt in FORMATS:
+        try:
+            rgb = fmt.decode(data)
+        except Exception:
+            continue
+        if rgb.ndim == 3 and rgb.dtype == np.uint8:
+            return np.ascontiguousarray(rgb[..., :3])
+    hint = " (for HEIC photos: pip install pillow-heif)" if path.suffix.lower() in (".heic", ".heif") else ""
+    raise ValueError("Couldn't read this image format." + hint)
 
 
 def human_bytes(n: float) -> str:
@@ -119,8 +151,8 @@ class CodecWorker(QThread):
             settings = dict(self.settings)
             mode = settings.pop("denoise_mode")
             compare_all = settings.pop("compare_all")
-            noise = codec_v4.estimate_noise(self.rgb)
-            strength = (codec_v4.auto_denoise_strength(noise) if mode == "auto"
+            noise = codec_v8.estimate_noise_v2(self.rgb)
+            strength = (codec_v8.auto_denoise_strength_v2(noise) if mode == "auto"
                         else float(mode))
             t0 = time.perf_counter()
             data = codec_v8.encode(self.rgb, denoise=strength, **settings)
@@ -396,11 +428,22 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Open an image, or drop one onto the window.")
 
     def _build_menu(self):
+        from PyQt6.QtWidgets import QToolBar
+        bar = QToolBar("Main")
+        bar.setMovable(False)
+        self.addToolBar(bar)
+        for text, slot in (("Open image…", self.open_image_dialog),
+                           ("Export .ful…", self.save_ful_dialog),
+                           ("Export decoded PNG…", self.export_png_dialog)):
+            act = QAction(text, self)
+            act.triggered.connect(slot)
+            bar.addAction(act)
         menu = self.menuBar().addMenu("&File")
         for text, shortcut, slot in [
             ("Open image…", QKeySequence.StandardKey.Open, self.open_image_dialog),
             ("Open FUL file…", QKeySequence("Ctrl+Shift+O"), self.open_ful_dialog),
-            ("Save as FUL…", QKeySequence.StandardKey.Save, self.save_ful_dialog),
+            ("Export .ful…", QKeySequence.StandardKey.Save, self.save_ful_dialog),
+            ("Export decoded PNG…", QKeySequence("Ctrl+Shift+E"), self.export_png_dialog),
             ("Load test pattern", None, self.load_test_pattern),
             ("Quit", QKeySequence.StandardKey.Quit, self.close),
         ]:
@@ -432,21 +475,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Couldn't open file", f"{p.name}\n\n{exc}")
 
     def load_image(self, path: Path):
-        img = QImage(str(path))
-        if not img.isNull():
-            self.set_source(qimage_to_rgb(img), path.name)
-            return
-        # Qt can't read AVIF, JPEG XL or JPEG 2000: try the comparison codecs
-        data = path.read_bytes()
-        for fmt in FORMATS:
-            try:
-                rgb = fmt.decode(data)
-            except Exception:
-                continue
-            if rgb.ndim == 3 and rgb.dtype == np.uint8:
-                self.set_source(np.ascontiguousarray(rgb[..., :3]), path.name)
-                return
-        raise ValueError("Couldn't read this image format.")
+        rgb = read_photo(path)
+        self.source_path = path
+        if rgb.shape[0] * rgb.shape[1] > LARGE_IMAGE and self.compare_all.isChecked():
+            self.compare_all.blockSignals(True)
+            self.compare_all.setChecked(False)
+            self.compare_all.blockSignals(False)
+            self.statusBar().showMessage(
+                f"Large photo ({rgb.shape[1]} x {rgb.shape[0]}): comparison with other formats "
+                "switched off to keep things quick. Tick it to compare anyway.", 8000)
+        self.set_source(rgb, path.name)
 
     def load_ful(self, path: Path):
         data = path.read_bytes()
@@ -469,14 +507,38 @@ class MainWindow(QMainWindow):
 
     def save_ful_dialog(self):
         if not self.result:
-            QMessageBox.information(self, "Nothing to save", "Open an image first.")
+            QMessageBox.information(self, "Nothing to export", "Open an image first, then wait for it to encode.")
             return
         stem = Path(self.source_name).stem or "image"
-        path, _ = QFileDialog.getSaveFileName(self, "Save as FUL", f"{stem}.ful", FUL_FILTER)
-        if path:
-            Path(path).write_bytes(self.result["data"])
-            self.statusBar().showMessage(f"Saved {Path(path).name} "
-                                         f"({human_bytes(len(self.result['data']))})")
+        path, _ = QFileDialog.getSaveFileName(self, "Export .ful", f"{stem}.ful", FUL_FILTER)
+        if not path:
+            return
+        data = self.result["data"]
+        Path(path).write_bytes(data)
+        lines = [f"Saved {Path(path).name}: {human_bytes(len(data))}",
+                 f"Quality {self.quality.value()}, encoded in {self.result['enc_ms'] / 1000:.1f} s"]
+        src = getattr(self, "source_path", None)
+        if src is not None and Path(src).exists():
+            orig = Path(src).stat().st_size
+            lines.append(f"Original file {human_bytes(orig)}: the .ful is {len(data) / orig * 100:.0f}% of its size")
+        jp = self.result.get("others", {}).get("JPEG")
+        if jp:
+            lines.append(f"A JPEG this size would be quality {jp['label'].split()[-1]} (SSIM {jp['ssim']:.4f} vs FUL {self.result['ssim']:.4f})")
+        self.statusBar().showMessage(lines[0], 8000)
+        QMessageBox.information(self, "Exported", "\n".join(lines))
+
+    def export_png_dialog(self):
+        """Save exactly what the .ful decodes to, as a PNG any app can open."""
+        if not self.result:
+            QMessageBox.information(self, "Nothing to export", "Open an image first, then wait for it to encode.")
+            return
+        stem = Path(self.source_name).stem or "image"
+        path, _ = QFileDialog.getSaveFileName(self, "Export decoded PNG", f"{stem}_ful.png", "PNG images (*.png)")
+        if not path:
+            return
+        rgb = self.result["grained"] if self.result.get("has_grain") and self.show_grain.isChecked() else self.result["decoded"]
+        rgb_to_qimage(rgb).save(path, "PNG")
+        self.statusBar().showMessage(f"Saved {Path(path).name}: what the .ful file looks like when decoded", 8000)
 
     def set_source(self, rgb: np.ndarray, name: str):
         self.source_rgb = rgb
