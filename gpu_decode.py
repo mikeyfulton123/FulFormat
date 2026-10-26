@@ -222,7 +222,8 @@ void main() {
 # --------------------------------------------------------------------------
 class _QtContext:
     def __init__(self):
-        from PyQt6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
+        from PyQt6.QtGui import QGuiApplication, QOffscreenSurface, QOpenGLContext, QSurfaceFormat
+        self.app = QGuiApplication.instance() or QGuiApplication([])
         fmt = QSurfaceFormat()
         fmt.setVersion(3, 3)
         fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)

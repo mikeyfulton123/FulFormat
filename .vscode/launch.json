@@ -9,6 +9,20 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Codec v8 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v8.py",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Codec v7 self-test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/codec_v7.py",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Codec v6 self-test",
       "type": "debugpy",
       "request": "launch",
