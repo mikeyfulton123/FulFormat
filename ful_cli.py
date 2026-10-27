@@ -6,7 +6,7 @@ FUL from the command line.
     python ful_cli.py decode photo.ful                 # writes photo_ful.png to view anywhere
     python ful_cli.py info photo.ful                   # version, size, settings
 
-Encoding uses the current format (v8). Decoding opens any FUL version.
+Encoding uses the current format (v9). Decoding opens any FUL version.
 Photos are rotated using their EXIF orientation; HEIC needs `pip install pillow-heif`.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ def human(n: float) -> str:
 
 
 def encode(paths, quality: int, out_dir: Path | None):
-    import codec_v8
+    import codec_v9
     total_in = total_out = 0
     for p in paths:
         try:
@@ -48,17 +48,17 @@ def encode(paths, quality: int, out_dir: Path | None):
             print(f"  skip {p.name}: {exc}")
             continue
         t0 = time.perf_counter()
-        data = codec_v8.encode(rgb, quality)
+        data = codec_v9.encode(rgb, quality)
         secs = time.perf_counter() - t0
         target = (out_dir or p.parent) / (p.stem + ".ful")
         target.write_bytes(data)
         size_in = p.stat().st_size
         total_in += size_in
         total_out += len(data)
-        noise = codec_v8.estimate_noise_v2(rgb)
+        noise = codec_v9.estimate_noise_v2(rgb)
         print(f"  {p.name}: {rgb.shape[1]}x{rgb.shape[0]}, {human(size_in)} -> {target.name} "
               f"{human(len(data))} ({len(data) / size_in * 100:.0f}%), {secs:.1f} s, noise {noise:.1f}"
-              + (" (denoised)" if codec_v8.auto_denoise_strength_v2(noise) > 0 else ""))
+              + (" (denoised)" if codec_v9.auto_denoise_strength_v2(noise) > 0 else ""))
     if total_in:
         print(f"Total: {human(total_in)} -> {human(total_out)} ({total_out / total_in * 100:.0f}%)")
 

@@ -4,13 +4,20 @@ FUL is an experimental image format. The goal is the smallest files at equal
 visual quality, with a light, exact decoder. Every change is judged by
 measurement, and negative results are as welcome as positive ones.
 
+## Read first
+
+1. `docs/FORMAT.md`: how the format works today.
+2. `docs/EXPERIMENTS.md`: what has already been measured. If your idea, or a
+   close variant, is there, explain what is genuinely different.
+
 ## Workflow
 
 1. Branch from `main` (one idea per branch).
 2. Make one change at a time and measure it alone before combining.
 3. Open a pull request with the report described below.
+4. Add the measured result to `docs/EXPERIMENTS.md` (wins and losses alike).
 
-New format versions go in a new file (`codec_v9.py`, ...). Never change how an
+New format versions go in a new file (`codec_v10.py`, ...). Never change how an
 existing version decodes: files written by it exist and must keep opening.
 Register new versions in `ful.py`.
 
@@ -26,9 +33,9 @@ Register new versions in `ful.py`.
 
 ## Measuring
 
-    python bench/run.py --codec v9               # tuning + held-out sets
-    python bench/run.py --codec v9 --formats     # include WebP, AVIF, JPEG XL, JPEG 2000
-    python bench/run.py --codec v9 --dir photos  # your own held-out photos
+    python bench/run.py --codec v10               # tuning + held-out sets
+    python bench/run.py --codec v10 --formats     # include WebP, AVIF, JPEG XL, JPEG 2000
+    python bench/run.py --codec v10 --dir photos  # your own held-out photos
 
 The primary number is file size relative to JPEG at equal colour SSIM
 (YCbCr, weighted 6:1:1), interpolated at the SSIM values JPEG reaches at
@@ -47,7 +54,7 @@ qualities 50, 75 and 90.
 - **Results:** tuning set, held-out set, second metric, encode and decode time.
 - **Verdict:** adopt, needs work, or drop.
 
-## Current state (v8)
+## Current state (v9)
 
 About 35% smaller than JPEG on photos and 32% on textures at equal SSIM.
 Always report a second metric too: at equal MS-SSIM FUL photos are currently

@@ -1,5 +1,5 @@
 """
-FUL Lab: a PyQt6 test bench for the FUL codec (v8: whole-image directional 9/7
+FUL Lab: a PyQt6 test bench for the FUL codec (v9: whole-image directional 9/7
 wavelets, post-filter, learned priors, dependent quantisation, real-cost RDO, perceptual quantisation, context-modelled rANS,
 denoising and grain).
 
@@ -33,6 +33,7 @@ import codec_v5
 import codec_v6
 import codec_v7
 import codec_v8
+import codec_v9
 import ful
 import formats
 import metrics
@@ -130,7 +131,7 @@ def warm_up_codec():
     global _codec_warmed
     if not _codec_warmed:
         tiny = np.zeros((8, 8, 3), np.uint8)
-        codec_v8.decode(codec_v8.encode(tiny, 50, True, denoise=1.0,
+        codec_v9.decode(codec_v9.encode(tiny, 50, True, denoise=1.0,
                                         grain=True, masking=True))
         _codec_warmed = True
 
@@ -151,17 +152,17 @@ class CodecWorker(QThread):
             settings = dict(self.settings)
             mode = settings.pop("denoise_mode")
             compare_all = settings.pop("compare_all")
-            noise = codec_v8.estimate_noise_v2(self.rgb)
-            strength = (codec_v8.auto_denoise_strength_v2(noise) if mode == "auto"
+            noise = codec_v9.estimate_noise_v2(self.rgb)
+            strength = (codec_v9.auto_denoise_strength_v2(noise) if mode == "auto"
                         else float(mode))
             t0 = time.perf_counter()
-            data = codec_v8.encode(self.rgb, denoise=strength, **settings)
+            data = codec_v9.encode(self.rgb, denoise=strength, **settings)
             t1 = time.perf_counter()
-            decoded = codec_v8.decode(data, grain=0)       # measured without grain
+            decoded = codec_v9.decode(data, grain=0)       # measured without grain
             t2 = time.perf_counter()
-            header = codec_v8.read_header(data)
+            header = codec_v9.read_header(data)
             has_grain = header["grain"]
-            grained = codec_v8.decode(data, grain=1) if has_grain else decoded
+            grained = codec_v9.decode(data, grain=1) if has_grain else decoded
             others = {}
             for fmt in FORMATS:
                 if not compare_all and fmt.name != "JPEG":

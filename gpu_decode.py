@@ -1,5 +1,5 @@
 """
-GPU decoding for FUL v4 to v8 files (OpenGL 3.3 core, via PyOpenGL).
+GPU decoding for FUL v4 to v9 files (OpenGL 3.3 core, via PyOpenGL).
 
 The work is split by what each processor is good at:
 
@@ -40,6 +40,7 @@ import codec_v5  # noqa: E402
 import codec_v6  # noqa: E402
 import codec_v7  # noqa: E402
 import codec_v8  # noqa: E402
+import codec_v9  # noqa: E402
 
 VERTEX = """
 #version 330 core
@@ -361,8 +362,8 @@ class GpuDecoder:
                         steps=codec_v5.STEPS_97 if info["wavelet"] == "9/7" else codec_v5.STEPS_53,
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v5.GRAIN_CELL, rows_first=False, dirs=[])
-        if version in (6, 7, 8):
-            codec = {6: codec_v6, 7: codec_v7, 8: codec_v8}[version]
+        if version in (6, 7, 8, 9):
+            codec = {6: codec_v6, 7: codec_v7, 8: codec_v8, 9: codec_v9}[version]
             coef, grain_sig, info, _, dirmaps = codec.decode_coefficients(data)
             if np.abs(coef).max() > 32767:
                 raise ValueError("Coefficients exceed 16 bits; use the CPU decoder")
@@ -374,9 +375,9 @@ class GpuDecoder:
                         extra=info["extra"], shift=info["prescale"] + info["extra"],
                         cell=codec_v6.GRAIN_CELL, rows_first=True,
                         dirs=[np.ascontiguousarray(codec_v6.DIRS[m].astype(np.int32)) for m in dirmaps],
-                        filter=(codec_v8.filter_map(data, info).astype(np.int32)
-                                if version == 8 and info.get("filter") else None))
-        raise ValueError(f"GPU decoding supports FUL v4 to v8, not version {version}")
+                        filter=(codec.filter_map(data, info).astype(np.int32)
+                                if version in (8, 9) and info.get("filter") else None))
+        raise ValueError(f"GPU decoding supports FUL v4 to v9, not version {version}")
 
     def _pass(self, src_tex, dst):
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.fbo[dst])
@@ -539,10 +540,12 @@ if __name__ == "__main__":
             assert np.array_equal(dec.decode(data)[0], codec_v7.decode(data)), ("v7", img.shape, q)
             data = codec_v8.encode(img, q, denoise=0.0, grain=False)
             assert np.array_equal(dec.decode(data)[0], codec_v8.decode(data)), ("v8", img.shape, q)
+            data = codec_v9.encode(img, q, denoise=0.0, grain=False)
+            assert np.array_equal(dec.decode(data)[0], codec_v9.decode(data)), ("v9", img.shape, q)
     print("GPU output is bit-identical to the CPU decoders: v4 (tiled 5/3), "
-          "v5 (whole-image 5/3 and 9/7), v6 to v8 (directional 9/7; v8 with its post-filter), odd sizes, lossless and lossy.")
+          "v5 (whole-image 5/3 and 9/7), v6 to v9 (directional 9/7; v8 and v9 with the post-filter), odd sizes, lossless and lossy.")
     img = codec_v1.make_test_image()
-    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6), (7, codec_v7), (8, codec_v8)):
+    for version, codec in ((4, codec_v4), (5, codec_v5), (6, codec_v6), (7, codec_v7), (8, codec_v8), (9, codec_v9)):
         data = codec.encode(img, 75, denoise=1.0, grain=True)
         gpu, t = dec.decode(data)
         differ = np.count_nonzero(np.any(gpu != codec.decode(data), axis=2))

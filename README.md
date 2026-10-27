@@ -6,9 +6,17 @@ real-cost rate-distortion optimisation, context-modelled rANS entropy coding,
 automatic denoising with grain regeneration, and a GPU decoder that is
 bit-identical to the CPU decoder.
 
-At equal SSIM, FUL v8 files are about 35% smaller than JPEG on photos and 32%
+At equal SSIM, FUL v9 files are about 35% smaller than JPEG on photos and 32%
 on textures (WebP ~30%, JPEG XL ~28%, JPEG 2000 ~21%, AVIF ~46%).
 See "Open issues" for how this depends on the quality metric.
+
+## Documentation
+
+- **`docs/FORMAT.md`**: how FUL works, encoder and decoder, down to the byte
+  layout. Start here before proposing changes.
+- **`docs/EXPERIMENTS.md`**: every idea measured so far, with results and
+  verdicts. Check it to avoid repeating past experiments; add every new
+  measured result to it.
 
 ## Real-life testing
 
@@ -31,19 +39,19 @@ decodes to, or the command line:
     source .venv/bin/activate          # Windows: .venv\Scripts\activate
     pip install -r requirements.txt
     python viewer.py                   # FUL Lab: compare FUL with other formats
-    python codec_v8.py                 # self-test
+    python codec_v9.py                 # self-test
     python bench/run.py                # benchmark against JPEG
 
 Contributions and research: see `CONTRIBUTING.md`.
 
 ## Files
 
-- `codec_v1.py` ... `codec_v8.py`: every version of the format. Each keeps its
-  own decoder so older `.ful` files always open. v8 is the current format.
-- `priors_v8.npy`: v8's learned starting probabilities (`python codec_v8.py --train`).
+- `codec_v1.py` ... `codec_v9.py`: every version of the format. Each keeps its
+  own decoder so older `.ful` files always open. v9 is the current format.
+- `priors_v8.npy`, `priors_v9.npy`: learned starting probabilities for v8 and v9.
 - `ful.py`: opens any `.ful` file by reading its version byte.
 - `gpu_decode.py`: CPU entropy decoding + OpenGL decoding of the wavelet,
-  colour, grain and post-filter stages (v4 to v8).
+  colour, grain and post-filter stages (v4 to v9).
 - `formats.py`: JPEG, WebP, AVIF, JPEG XL and JPEG 2000 for comparison.
 - `metrics.py`: PSNR and colour SSIM.
 - `viewer.py`: FUL Lab, the PyQt6 test bench.
@@ -86,6 +94,13 @@ Contributions and research: see `CONTRIBUTING.md`.
   clean scene (was -56%); daylight -43.5% (was -45.3%); clean photos untouched.
   On three real camera photos (1024px crops): -46% vs JPEG at equal SSIM
   (JPEG XL -40%, AVIF -35%); at equal MS-SSIM -17% (JPEG XL -29%, AVIF -17%).
+
+- v8.2: the GPU decoder creates a Qt application if none exists, so it also
+  runs standalone from the terminal.
+- v9: Gaussian-scale-mixture-style context (one continuous local-spread estimate
+  from neighbours, parent and sibling bands, 15 bins) with retrained priors:
+  -1.3% tuning, -0.7% held-out, -0.8% textures vs v8, identical pixels; decode
+  ~8% slower. See docs/FORMAT.md and docs/EXPERIMENTS.md (E12, E16).
 
 ## Open issues
 

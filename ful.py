@@ -16,9 +16,10 @@ import codec_v5
 import codec_v6
 import codec_v7
 import codec_v8
+import codec_v9
 
 MAGIC = b"FUL\x00"
-LATEST = 8
+LATEST = 9
 
 
 def peek_version(data: bytes) -> int:
@@ -45,6 +46,8 @@ def read_header(data: bytes) -> dict:
         return codec_v7.read_header(data)
     if version == 8:
         return codec_v8.read_header(data)
+    if version == 9:
+        return codec_v9.read_header(data)
     raise ValueError(f"Unsupported FUL version {version}")
 
 
@@ -70,12 +73,15 @@ def encode(rgb: np.ndarray, version: int = LATEST, **settings) -> bytes:
     if version == 8:
         settings.pop("tile_size", None)
         return codec_v8.encode(rgb, **settings)
+    if version == 9:
+        settings.pop("tile_size", None)
+        return codec_v9.encode(rgb, **settings)
     raise ValueError(f"Unsupported FUL version {version}")
 
 
 def decode(data: bytes, layers: int | None = None, grain: float = 1.0) -> np.ndarray:
     """Decode any FUL file. `layers` applies to v2+ (progressive); `grain`
-    scales regenerated grain in v4 to v8 files (0 = off)."""
+    scales regenerated grain in v4 to v9 files (0 = off)."""
     version = peek_version(data)
     if version == 1:
         return codec_v1.decode(data)
@@ -93,4 +99,6 @@ def decode(data: bytes, layers: int | None = None, grain: float = 1.0) -> np.nda
         return codec_v7.decode(data, layers, grain)
     if version == 8:
         return codec_v8.decode(data, layers, grain)
+    if version == 9:
+        return codec_v9.decode(data, layers, grain)
     raise ValueError(f"Unsupported FUL version {version}")
